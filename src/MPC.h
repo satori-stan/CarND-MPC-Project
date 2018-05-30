@@ -6,6 +6,8 @@
 
 using namespace std;
 
+namespace CarND {
+
 class MPC {
  public:
   MPC();
@@ -16,5 +18,7 @@ class MPC {
   // Return the first actuatotions.
   vector<double> Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs);
 };
+
+}  // namespace CarND
 
 #endif /* MPC_H */

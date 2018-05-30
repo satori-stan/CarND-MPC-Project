@@ -4,13 +4,15 @@
 #include <iostream>
 #include <thread>
 #include <vector>
-#include "Eigen-3.3/Eigen/Core"
-#include "Eigen-3.3/Eigen/QR"
-#include "MPC.h"
+#include "Eigen-3.3/Eigen/Dense"
+//#include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
+#include "helper_functions.h"
+#include "MPC.h"
 
 // for convenience
 using json = nlohmann::json;
+using namespace CarND;
 
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
@@ -32,44 +34,12 @@ string hasData(string s) {
   return "";
 }
 
-// Evaluate a polynomial.
-double polyeval(Eigen::VectorXd coeffs, double x) {
-  double result = 0.0;
-  for (int i = 0; i < coeffs.size(); i++) {
-    result += coeffs[i] * pow(x, i);
-  }
-  return result;
-}
-
-// Fit a polynomial.
-// Adapted from
-// https://github.com/JuliaMath/Polynomials.jl/blob/master/src/Polynomials.jl#L676-L716
-Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
-                        int order) {
-  assert(xvals.size() == yvals.size());
-  assert(order >= 1 && order <= xvals.size() - 1);
-  Eigen::MatrixXd A(xvals.size(), order + 1);
-
-  for (int i = 0; i < xvals.size(); i++) {
-    A(i, 0) = 1.0;
-  }
-
-  for (int j = 0; j < xvals.size(); j++) {
-    for (int i = 0; i < order; i++) {
-      A(j, i + 1) = A(j, i) * xvals(j);
-    }
-  }
-
-  auto Q = A.householderQr();
-  auto result = Q.solve(yvals);
-  return result;
-}
 
 int main() {
   uWS::Hub h;
 
   // MPC is initialized here!
-  MPC mpc;
+  CarND::MPC mpc;
 
   h.onMessage([&mpc](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
@@ -92,18 +62,30 @@ int main() {
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
 
-          /*
-          * TODO: Calculate steering angle and throttle using MPC.
-          *
-          * Both are in between [-1, 1].
-          *
-          */
-          double steer_value;
-          double throttle_value;
+          // TODO: Calculate cte and epsi
+          Eigen::VectorXd coefficients = HelperFunctions::polyfit(
+              Eigen::Map<Eigen::VectorXd>(&ptsx[0], ptsx.size()),
+              Eigen::Map<Eigen::VectorXd>(&ptsy[0], ptsy.size()),
+              3);
+          double cte = py - HelperFunctions::polyeval(coefficients, px);
+          double epsi = atan(HelperFunctions::polyeval(
+              HelperFunctions::derivative(coefficients), px));
+
+          // Calculate actuation values
+          Eigen::VectorXd state(6); // TODO: Get rid of magic number
+          state << px, py, psi, v, cte, epsi;
+
+          vector<double> control_actuation = mpc.Solve(state, coefficients);
+          double steer_value = -1 * control_actuation[0];  // Adjust steering direction
+          double throttle_value = control_actuation[1];
 
           json msgJson;
+
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
           // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
+          const double steer_base = deg2rad(25);
+          steer_value /= steer_base;
+
           msgJson["steering_angle"] = steer_value;
           msgJson["throttle"] = throttle_value;
 
@@ -114,6 +96,7 @@ int main() {
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Green line
 
+
           msgJson["mpc_x"] = mpc_x_vals;
           msgJson["mpc_y"] = mpc_y_vals;
 
@@ -123,6 +106,24 @@ int main() {
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line
+
+          double psi_rads = deg2rad(psi);
+          next_x_vals.resize(ptsx.size());
+          next_y_vals.resize(ptsy.size());
+          /*
+          std::transform(ptsx.begin(), ptsx.end(), next_x_vals.begin(), [&px, &py, &psi_rads](double x) { return x + cos(psi_rads) * px - sin(psi_rads) * py; });
+          std::transform(ptsy.begin(), ptsy.end(), next_y_vals.begin(), [&px, &py, &psi_rads](double y) { return y + sin(psi_rads) * px + cos(psi_rads) * py; });
+          */
+          std::transform(ptsx.begin(), ptsx.end(), next_x_vals.begin(), [&px, &py, &psi](double x) { return (px - x) * cos(deg2rad(psi)); });
+          std::transform(ptsy.begin(), ptsy.end(), next_y_vals.begin(), [&px, &py, &psi](double y) { return (py - y) * sin(deg2rad(psi)); });
+          /*
+          for (size_t i = 0; i < ptsx.size(); ++i) {
+            double x = ptsx[i];
+            double y = ptsy[i];
+            next_x_vals.push_back(px + cos(psi_rads) * x - sin(psi_rads) * y);
+            next_y_vals.push_back(py + sin(psi_rads) * x + cos(psi_rads) * y);
+          }
+          */
 
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
