@@ -8,9 +8,13 @@ namespace CarND {
 
 class HelperFunctions {
  public:
+  // For converting back and forth between radians and degrees.
+  static double Deg2Rad(double x) { return x * M_PI / 180; }
+  static double Rad2Deg(double x) { return x * 180 / M_PI; }
+
   // Evaluate a polynomial.
   template <typename T>
-  static inline T polyeval(Eigen::VectorXd coeffs, T x) {
+  static inline T PolyEval(Eigen::VectorXd coeffs, T x) {
     T result = 0.0;
     for (int i = 0; i < coeffs.size(); i++) {
       result += coeffs[i] * pow(x, i);
@@ -21,7 +25,7 @@ class HelperFunctions {
   // Fit a polynomial.
   // Adapted from
   // https://github.com/JuliaMath/Polynomials.jl/blob/master/src/Polynomials.jl#L676-L716
-  static inline Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
+  static inline Eigen::VectorXd PolyFit(Eigen::VectorXd xvals, Eigen::VectorXd yvals,
                           int order) {
     assert(xvals.size() == yvals.size());
     assert(order >= 1 && order <= xvals.size() - 1);
@@ -46,7 +50,7 @@ class HelperFunctions {
    * Calculate the derivative of our polinomial coefficients
    * @returns A vector of coefficients consistent with the derivative
    */
-  static inline Eigen::VectorXd derivative(Eigen::VectorXd coeffs) {
+  static inline Eigen::VectorXd Derivative(Eigen::VectorXd coeffs) {
     Eigen::VectorXd derivative(coeffs.size() - 1);
     for (int i = 1; i < coeffs.size(); ++i) {
       derivative[i - 1] = coeffs[i] * i;

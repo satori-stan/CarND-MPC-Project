@@ -1,0 +1,16 @@
+80 11.09 843 3571 123 123 710647 15127 # 37/80 mph 
+40 11.09 521 3571 123 123 710647 322 # 37/40 mph 
+40 6.854 521 3571 200 200 710647 162 # 35/40 mph 
+40 4.236 843 3571 200 200 710647 162 # 32/40 mph 
+40 2.618 2207 3571 321.99 200 710647 162 # 28/40 mph 
+40 1.618 2207 3571 321.99 200 439204 162 # 25/40 mph 
+40 1 2207 3571 321.99 200 271443 162  # 20/40 mph
+
+# Reference Speed
+# Speed factor
+# CTE factor
+# Epsi factor
+# Delta factor
+# Acceleration factor
+# Delta ratio factor
+# Acceleration ratio factor

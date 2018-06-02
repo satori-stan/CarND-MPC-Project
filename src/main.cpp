@@ -14,11 +14,6 @@
 using json = nlohmann::json;
 using namespace CarND;
 
-// For converting back and forth between radians and degrees.
-constexpr double pi() { return M_PI; }
-double deg2rad(double x) { return x * pi() / 180; }
-double rad2deg(double x) { return x * 180 / pi(); }
-
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
 // else the empty string "" will be returned.
@@ -62,43 +57,71 @@ int main() {
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
 
-          // TODO: Calculate cte and epsi
-          Eigen::VectorXd coefficients = HelperFunctions::polyfit(
+          // The following values are used as approximations of process values
+          // required to deal with latency. The steering angle is really the
+          // angle-of-steer ratio based on the maximum steer angle (25°) so we
+          // multiply it by that. The same goes for the throttle: empirically
+          // measured in the simulator, a maximum throttle of 1 makes the car
+          // reach 40mph in 4 seconds, so we multiply the throttle times 2.5 to
+          // approximate the acceleration.
+          double delta = j[1]["steering_angle"];
+          delta *= MPC::kMaxSteerAngle;  // TODO: Deg2Rad(25) should be a constant
+          double acceleration = j[1]["throttle"];
+          acceleration *= 2.5;  // TODO: Make it a constant of the model as well
+
+
+          // Shift the waypoints to ease calculation
+          for (size_t i = 0; i < ptsx.size(); ++i) {
+            // Translate the position
+            double x = ptsx[i] - px;
+            double y = ptsy[i] - py;
+
+            // Rotate the points, adjusting the direction
+            ptsx[i] = x * cos(-psi) - y * sin(-psi);
+            ptsy[i] = x * sin(-psi) + y * cos(-psi);
+          }
+
+          // Once we have shifted our reference, the initial values become zero
+          /*
+          px = 0;
+          py = 0;
+          psi = 0;
+          */
+
+          // Calculate cte and epsi. For this we first fit a third degree
+          // polinomial to the waypoints, as suggested in the lectures.
+          Eigen::VectorXd coefficients = HelperFunctions::PolyFit(
               Eigen::Map<Eigen::VectorXd>(&ptsx[0], ptsx.size()),
               Eigen::Map<Eigen::VectorXd>(&ptsy[0], ptsy.size()),
               3);
-          double cte = py - HelperFunctions::polyeval(coefficients, px);
-          double epsi = atan(HelperFunctions::polyeval(
-              HelperFunctions::derivative(coefficients), px));
+          // Then we evaluate the polinomial at the first point and subtract the
+          // result to the current y value. This is again, an approximation of
+          // the CTE.
+          double cte = 0 - HelperFunctions::PolyEval(coefficients, 0);
+          // Following is the calculation of error in psi, but since psi and px
+          // are zero, we can simplify and use less computing cycles.
+          /*
+          // Notice we use a helper function to calculate the derivative. This
+          // helps if the polinomial is of variable degrees.
+          double epsi = psi - atan(HelperFunctions::PolyEval(
+              HelperFunctions::Derivative(coefficients), px));
+          */
+          double epsi = -atan(coefficients[1]);
 
           // Calculate actuation values
           Eigen::VectorXd state(6); // TODO: Get rid of magic number
-          state << px, py, psi, v, cte, epsi;
+          double latency = 0.15;
+          state <<
+            0 + v * cos(0) * latency,
+            0 + v * sin(0) * latency,
+            0 + v * delta * latency / MPC::kLf,
+            v + acceleration * latency,
+            cte, epsi;
 
-          vector<double> control_actuation = mpc.Solve(state, coefficients);
-          double steer_value = -1 * control_actuation[0];  // Adjust steering direction
-          double throttle_value = control_actuation[1];
-
-          json msgJson;
-
-          // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
-          // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
-          const double steer_base = deg2rad(25);
-          steer_value /= steer_base;
-
-          msgJson["steering_angle"] = steer_value;
-          msgJson["throttle"] = throttle_value;
-
-          //Display the MPC predicted trajectory 
-          vector<double> mpc_x_vals;
-          vector<double> mpc_y_vals;
-
-          //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
-          // the points in the simulator are connected by a Green line
-
-
-          msgJson["mpc_x"] = mpc_x_vals;
-          msgJson["mpc_y"] = mpc_y_vals;
+          //vector<double> control_actuation = mpc.Solve(state, coefficients);
+          MpcSolution control_actuation = mpc.Solve(state, coefficients);
+          double steer_value = -1 * control_actuation.steering;  // Adjust steering direction
+          double throttle_value = control_actuation.acceleration;
 
           //Display the waypoints/reference line
           vector<double> next_x_vals;
@@ -107,23 +130,45 @@ int main() {
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line
 
-          double psi_rads = deg2rad(psi);
-          next_x_vals.resize(ptsx.size());
-          next_y_vals.resize(ptsy.size());
           /*
-          std::transform(ptsx.begin(), ptsx.end(), next_x_vals.begin(), [&px, &py, &psi_rads](double x) { return x + cos(psi_rads) * px - sin(psi_rads) * py; });
-          std::transform(ptsy.begin(), ptsy.end(), next_y_vals.begin(), [&px, &py, &psi_rads](double y) { return y + sin(psi_rads) * px + cos(psi_rads) * py; });
-          */
-          std::transform(ptsx.begin(), ptsx.end(), next_x_vals.begin(), [&px, &py, &psi](double x) { return (px - x) * cos(deg2rad(psi)); });
-          std::transform(ptsy.begin(), ptsy.end(), next_y_vals.begin(), [&px, &py, &psi](double y) { return (py - y) * sin(deg2rad(psi)); });
-          /*
-          for (size_t i = 0; i < ptsx.size(); ++i) {
-            double x = ptsx[i];
-            double y = ptsy[i];
-            next_x_vals.push_back(px + cos(psi_rads) * x - sin(psi_rads) * y);
-            next_y_vals.push_back(py + sin(psi_rads) * x + cos(psi_rads) * y);
+          const double increment = 5;
+          const size_t number_of_points = 10;  // At least 10 to be of any use
+          // Recover the original heading
+          for (size_t i = 1; i <= number_of_points; ++i) {
+            double x = i * increment;
+            double y = HelperFunctions::PolyEval(coefficients, x);
+            // Shift the points to map coordinates
+            //x = x + px * cos(-psi) - py * sin(-psi);
+            //y = y + px * sin(-psi) + py * cos(-psi);
+            next_x_vals.push_back(x);
+            next_y_vals.push_back(y);
           }
           */
+          next_x_vals = ptsx;
+          next_y_vals = ptsy;
+
+
+          json msgJson;
+
+          // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
+          // Otherwise the values will be in between [-deg2rad(25), deg2rad(25] instead of [-1, 1].
+          //double steer_base = deg2rad(25);
+          steer_value /= (MPC::kMaxSteerAngle * MPC::kLf);
+
+          msgJson["steering_angle"] = steer_value;
+          msgJson["throttle"] = throttle_value;
+
+          //Display the MPC predicted trajectory 
+          vector<double> mpc_x_vals = control_actuation.x_points;
+          vector<double> mpc_y_vals = control_actuation.y_points;
+
+          //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
+          // the points in the simulator are connected by a Green line
+
+
+          msgJson["mpc_x"] = mpc_x_vals;
+          msgJson["mpc_y"] = mpc_y_vals;
+
 
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;

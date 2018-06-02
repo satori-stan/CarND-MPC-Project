@@ -1,3 +1,5 @@
+#include <fstream>
+#include <iostream>
 #include <cppad/cppad.hpp>
 #include <cppad/ipopt/solve.hpp>
 #include "Eigen-3.3/Eigen/Core"
@@ -28,7 +30,7 @@ const double Lf = 2.67;
 // The target speed.
 // TODO: I don't think this should be part of the model, since it is an
 //      environmental constraint. Figure out a better place for it.
-const double kReferenceSpeed = 100;
+//const double kReferenceSpeed = 20; //100;
 
 // The solver takes all the state variables and actuator
 // variables in a singular vector. Thus, we should to establish
@@ -47,7 +49,35 @@ class FG_eval {
   typedef CPPAD_TESTVECTOR(AD<double>) ADvector;
   // Fitted polynomial coefficients
   Eigen::VectorXd coeffs_;
-  FG_eval(Eigen::VectorXd coeffs) : coeffs_(coeffs) {}
+  FG_eval(Eigen::VectorXd coeffs) : coeffs_(coeffs) {
+    std::ifstream config_file("params.txt");
+    if (config_file.is_open()) {
+      
+      config_file >>
+        reference_speed_ >>
+        speed_factor_ >>
+        cte_factor_ >>
+        epsi_factor_ >>
+        delta_factor_ >>
+        acceleration_factor_ >>
+        delta_ratio_factor_ >>
+        acceleration_ratio_factor_;
+
+      config_file.close();
+    }
+    /*
+    std::cout << "Parameters: "
+       << reference_speed_ << " "
+       << speed_factor_ << " "
+       << cte_factor_ << " "
+       << epsi_factor_ << " "
+       << delta_factor_ << " "
+       << acceleration_factor_ << " "
+       << delta_ratio_factor_ << " "
+       << acceleration_ratio_factor_
+       << std::endl;
+    */
+  }
 
   void operator()(ADvector& fg, const ADvector& vars) {
     // `fg` a vector of the cost constraints, `vars` is a vector of variable
@@ -60,27 +90,34 @@ class FG_eval {
     // We store cost value in the first index of the fg vector.
     fg[0] = 0;  // Initialize to zero
 
+    // It is important to note that not all calculations share the same scale,
+    // so we apply factors to each cost component to make sure the car follows
+    // the rules that we place more emphasis on. Ideally though, we should find
+    // a more generic solution, like normalizing.
+
     // Add the cost of the reference state
     for (t = 0; t < N; t++) {
-      fg[0] += CppAD::pow(vars[kVStart + t] - kReferenceSpeed, 2)
-          + CppAD::pow(vars[kCteStart + t], 2)
-          + CppAD::pow(vars[kEpsiStart + t], 2);
+      fg[0] +=
+            speed_factor_ * CppAD::pow(vars[kVStart + t] - reference_speed_, 2)
+          + cte_factor_ * CppAD::pow(vars[kCteStart + t], 2)
+          + epsi_factor_ * CppAD::pow(vars[kEpsiStart + t], 2);
     }
 
     // Add the cost of using the actuators
     // We actually want to penalize the use of heavy actuator values (steering,
     // accelerating/braking too hard), which is why we apply factors.
     for (t = 0; t < N-1; t++) {
-      fg[0] += 200 * CppAD::pow(vars[kDeltaStart + t], 2)
-          + 2 * CppAD::pow(vars[kAStart + t], 2);
+      fg[0] +=
+            delta_factor_ * CppAD::pow(vars[kDeltaStart + t], 2)
+          + acceleration_factor_ * CppAD::pow(vars[kAStart + t], 2);
     }
 
     // Add the cost of changes in the actuators
     // Here again, we penalize sharp changes in the actuator values.
     for (t = 0; t < N-2; t++) {
       fg[0] +=
-            2 * CppAD::pow(vars[kDeltaStart + t + 1] - vars[kDeltaStart + t], 2)
-          + 1.5 * CppAD::pow(vars[kAStart + t + 1] - vars[kAStart + t], 2);
+            delta_ratio_factor_ * CppAD::pow(vars[kDeltaStart + t + 1] - vars[kDeltaStart + t], 2)
+          + acceleration_ratio_factor_ * CppAD::pow(vars[kAStart + t + 1] - vars[kAStart + t], 2);
     }
 
     //
@@ -117,10 +154,10 @@ class FG_eval {
 
       // The expected position obtained by evaluating the current trajectory
       // estimation.
-      AD<double> f0 = HelperFunctions::polyeval(coeffs_, x0);
+      AD<double> f0 = HelperFunctions::PolyEval(coeffs_, x0);
       // The destination heading, obtained from the tangent of the trajectory's
       // derivative.
-      AD<double> psi_des0 = CppAD::atan(HelperFunctions::polyeval(HelperFunctions::derivative(coeffs_), x0));
+      AD<double> psi_des0 = CppAD::atan(HelperFunctions::PolyEval(HelperFunctions::Derivative(coeffs_), x0));
 
       // Note the use of `AD<double>` and use of `CppAD`!
       // This is so CppAD can compute derivatives and pass these to the solver.
@@ -133,6 +170,16 @@ class FG_eval {
       fg[1 + kEpsiStart + t] = epsi1 - ((psi0 - psi_des0) + v0 * delta0 * dt / Lf);
     }
   }
+
+ private:
+  double reference_speed_ ;
+  double speed_factor_ ;
+  double cte_factor_ ;
+  double epsi_factor_ ;
+  double delta_factor_ ;
+  double acceleration_factor_ ;
+  double delta_ratio_factor_ ;
+  double acceleration_ratio_factor_;
 };
 
 //
@@ -141,7 +188,9 @@ class FG_eval {
 MPC::MPC() {}
 MPC::~MPC() {}
 
-vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
+//vector<double> 
+MpcSolution
+MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   bool ok = true;
   size_t i;
   typedef CPPAD_TESTVECTOR(double) Dvector;
@@ -252,7 +301,11 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
           solution.x[kCteStart + 1], solution.x[kEpsiStart + 1],
           solution.x[kDeltaStart],   solution.x[kAStart]};
   */
-  return {solution.x[kDeltaStart], solution.x[kAStart]};
+  return {
+    solution.x[kAStart],
+    solution.x[kDeltaStart],
+    std::vector<double> (solution.x.data() + kXStart, solution.x.data() + kYStart),
+    std::vector<double> (solution.x.data() + kYStart, solution.x.data() + kPsiStart)};
 }
 
 }  // namespace CarND
