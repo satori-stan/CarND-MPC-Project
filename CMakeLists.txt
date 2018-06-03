@@ -24,6 +24,7 @@ link_directories(/usr/local/Cellar/libuv/1*/lib)
 endif(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 
 add_executable(mpc ${sources})
+file(COPY src/params.txt DESTINATION ${CMAKE_BINARY_DIR})
 
 target_link_libraries(mpc ipopt z ssl uv uWS)
 

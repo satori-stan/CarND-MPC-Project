@@ -10,27 +10,9 @@ using CppAD::AD;
 
 namespace CarND {
 
-
 // The timestep length and duration
-size_t N = 20;
+size_t N = 10;
 double dt = 0.1;
-
-// This value assumes the model presented in the classroom is used.
-//
-// It was obtained by measuring the radius formed by running the vehicle in the
-// simulator around in a circle with a constant steering angle and velocity on a
-// flat terrain.
-//
-// Lf was tuned until the the radius formed by the simulating the model
-// presented in the classroom matched the previous radius.
-//
-// This is the length from front to CoG that has a similar radius.
-const double Lf = 2.67;
-
-// The target speed.
-// TODO: I don't think this should be part of the model, since it is an
-//      environmental constraint. Figure out a better place for it.
-//const double kReferenceSpeed = 20; //100;
 
 // The solver takes all the state variables and actuator
 // variables in a singular vector. Thus, we should to establish
@@ -65,18 +47,6 @@ class FG_eval {
 
       config_file.close();
     }
-    /*
-    std::cout << "Parameters: "
-       << reference_speed_ << " "
-       << speed_factor_ << " "
-       << cte_factor_ << " "
-       << epsi_factor_ << " "
-       << delta_factor_ << " "
-       << acceleration_factor_ << " "
-       << delta_ratio_factor_ << " "
-       << acceleration_ratio_factor_
-       << std::endl;
-    */
   }
 
   void operator()(ADvector& fg, const ADvector& vars) {
@@ -164,10 +134,10 @@ class FG_eval {
 
       fg[1 + kXStart + t] = x1 - (x0 + v0 * CppAD::cos(psi0) * dt);
       fg[1 + kYStart + t] = y1 - (y0 + v0 * CppAD::sin(psi0) * dt);
-      fg[1 + kPsiStart + t] = psi1 - (psi0 + v0 * delta0 * dt / Lf);
+      fg[1 + kPsiStart + t] = psi1 - (psi0 + v0 * delta0 * dt / MPC::kLf);
       fg[1 + kVStart + t] = v1 - (v0 + a0 * dt);
       fg[1 + kCteStart + t] = cte1 - ((f0 - y0) + v0 * CppAD::sin(epsi0) * dt);
-      fg[1 + kEpsiStart + t] = epsi1 - ((psi0 - psi_des0) + v0 * delta0 * dt / Lf);
+      fg[1 + kEpsiStart + t] = epsi1 - ((psi0 - psi_des0) - v0 * delta0 * dt / MPC::kLf);
     }
   }
 
@@ -188,7 +158,6 @@ class FG_eval {
 MPC::MPC() {}
 MPC::~MPC() {}
 
-//vector<double> 
 MpcSolution
 MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   bool ok = true;
@@ -201,6 +170,13 @@ MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   size_t n_constraints = N * n_state;
   size_t n_vars = n_constraints + (N - 1) * n_actuators;
 
+  double x = state[0];
+  double y = state[1];
+  double psi = state[2];
+  double v = state[3];
+  double cte = state[4];
+  double epsi = state[5];
+
   // Initial value of the independent variables.
   // SHOULD BE 0 besides initial state.
   Dvector vars(n_vars);
@@ -210,7 +186,7 @@ MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
 
   Dvector vars_lowerbound(n_vars);
   Dvector vars_upperbound(n_vars);
-  // TODO: Set lower and upper limits for variables.
+  // Set lower and upper limits for variables.
 
   // Set all non-actuators upper and lowerlimits
   // to the max negative and positive values.
@@ -234,13 +210,6 @@ MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
     constraints_lowerbound[i] = 0;
     constraints_upperbound[i] = 0;
   }
-
-  double x = state[0];
-  double y = state[1];
-  double psi = state[2];
-  double v = state[3];
-  double cte = state[4];
-  double epsi = state[5];
 
   constraints_lowerbound[kXStart] = x;
   constraints_lowerbound[kYStart] = y;
@@ -289,18 +258,11 @@ MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
   auto cost = solution.obj_value;
   std::cout << "Cost " << cost << std::endl;
 
-  // TODO: Return the first actuator values. The variables can be accessed with
+  // Return the first actuator values. The variables can be accessed with
   // `solution.x[i]`.
   //
   // {...} is shorthand for creating a vector, so auto x1 = {1.0,2.0}
   // creates a 2 element double vector.
-  //return {};
-  /*
-  return {solution.x[kXStart + 1],   solution.x[kYStart + 1],
-          solution.x[kPsiStart + 1], solution.x[kVStart + 1],
-          solution.x[kCteStart + 1], solution.x[kEpsiStart + 1],
-          solution.x[kDeltaStart],   solution.x[kAStart]};
-  */
   return {
     solution.x[kAStart],
     solution.x[kDeltaStart],

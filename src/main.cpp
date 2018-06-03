@@ -60,14 +60,15 @@ int main() {
           // The following values are used as approximations of process values
           // required to deal with latency. The steering angle is really the
           // angle-of-steer ratio based on the maximum steer angle (25°) so we
-          // multiply it by that. The same goes for the throttle: empirically
-          // measured in the simulator, a maximum throttle of 1 makes the car
-          // reach 40mph in 4 seconds, so we multiply the throttle times 2.5 to
-          // approximate the acceleration.
+          // multiply it by that and flip the direction since the telemetry
+          // value is sent with inverted sign. The same goes for the throttle:
+          // empirically measured in the simulator, a maximum throttle of 1
+          // makes the car reach 40mph in 4 seconds, so we multiply the throttle
+          // times 10 to approximate the acceleration.
           double delta = j[1]["steering_angle"];
-          delta *= MPC::kMaxSteerAngle;  // TODO: Deg2Rad(25) should be a constant
+          delta *= -MPC::kMaxSteerAngle;
           double acceleration = j[1]["throttle"];
-          acceleration *= 2.5;  // TODO: Make it a constant of the model as well
+          acceleration *= 10;  // TODO: Make it a constant of the model as well
 
 
           // Shift the waypoints to ease calculation
@@ -81,13 +82,6 @@ int main() {
             ptsy[i] = x * sin(-psi) + y * cos(-psi);
           }
 
-          // Once we have shifted our reference, the initial values become zero
-          /*
-          px = 0;
-          py = 0;
-          psi = 0;
-          */
-
           // Calculate cte and epsi. For this we first fit a third degree
           // polinomial to the waypoints, as suggested in the lectures.
           Eigen::VectorXd coefficients = HelperFunctions::PolyFit(
@@ -97,7 +91,9 @@ int main() {
           // Then we evaluate the polinomial at the first point and subtract the
           // result to the current y value. This is again, an approximation of
           // the CTE.
-          double cte = 0 - HelperFunctions::PolyEval(coefficients, 0);
+          //double cte = py - HelperFunctions::PolyEval(coefficients, px);
+          // This is the simplified form, with px and py = 0
+          double cte = -coefficients[0];
           // Following is the calculation of error in psi, but since psi and px
           // are zero, we can simplify and use less computing cycles.
           /*
@@ -118,35 +114,19 @@ int main() {
             v + acceleration * latency,
             cte, epsi;
 
-          //vector<double> control_actuation = mpc.Solve(state, coefficients);
           MpcSolution control_actuation = mpc.Solve(state, coefficients);
           double steer_value = -1 * control_actuation.steering;  // Adjust steering direction
           double throttle_value = control_actuation.acceleration;
 
-          //Display the waypoints/reference line
+          // Display the waypoints/reference line
           vector<double> next_x_vals;
           vector<double> next_y_vals;
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line
 
-          /*
-          const double increment = 5;
-          const size_t number_of_points = 10;  // At least 10 to be of any use
-          // Recover the original heading
-          for (size_t i = 1; i <= number_of_points; ++i) {
-            double x = i * increment;
-            double y = HelperFunctions::PolyEval(coefficients, x);
-            // Shift the points to map coordinates
-            //x = x + px * cos(-psi) - py * sin(-psi);
-            //y = y + px * sin(-psi) + py * cos(-psi);
-            next_x_vals.push_back(x);
-            next_y_vals.push_back(y);
-          }
-          */
           next_x_vals = ptsx;
           next_y_vals = ptsy;
-
 
           json msgJson;
 
@@ -165,14 +145,11 @@ int main() {
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Green line
 
-
           msgJson["mpc_x"] = mpc_x_vals;
           msgJson["mpc_y"] = mpc_y_vals;
 
-
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
-
 
           auto msg = "42[\"steer\"," + msgJson.dump() + "]";
           std::cout << msg << std::endl;

@@ -46,7 +46,7 @@ What these equations describe is the following:
 
 Of these variables, x_t, y_t, psi_t and v_t are variables that describe the current state of the vehicle as measured by the on-board sensors. A_t and delta are control variables, which we apply to modify the state of the vehicle. Lf is a characteristic of the vehicle that may change from one vehicle to another but never for the same vehicle. Lastly dt is a model variable, chosen to find the state of the next vehicle at a future moment in time.
 
-The model's equations can be seen in the adjustment for latency (main.cpp:114-117) and the definition of the controller's constraints for the optimizer (MPC.cpp:164-169).
+The model's equations can be seen in the adjustment for latency (main.cpp:110-113) and the definition of the controller's constraints for the optimizer (MPC.cpp:135-140).
 
 #### Appropriate values for N and dt
 
@@ -68,25 +68,25 @@ My final values were N = 10 and dt = 0.1 (for a total of one second look-ahead).
 
 One of the first steps in using a MPC controller is the calculation of CTE (Cross Track Error, or the distance between the expected position and the actual position) and EPSI (the error between the expected and actual heading). In order to get these values, a curve must be fitted to the telemetry-calculated waypoints so that we may calculate the distance and the curve's tangent.
 
-One caveat in the project is that the waypoints are provided in the map’s coordinate system. While not impossible to do the required calculations with the raw data, the process is simplified greatly if the points are expressed in the car's coordinate system. To do this, we apply a homogeneous transformation to translate and rotate the waypoints (main.cpp:73-81).
+One caveat in the project is that the waypoints are provided in the map's coordinate system. While not impossible to do the required calculations with the raw data, the process is simplified greatly if the points are expressed in the car's coordinate system. To do this, we apply a homogeneous transformation to translate and rotate the waypoints (main.cpp:74-82).
 
-Once this is done, we fit a third degree polynomial to the waypoints. A third degree is used since it can be used to describe most curves found on roads. The fitting is done with a function borrowed from the Julia language's source (the github link can be found in helper_functions.h:27) and relies heavily on the Eigen library (main.cpp:92-95).
+Once this is done, we fit a third degree polynomial to the waypoints. A third degree is used since it can be used to describe most curves found on roads. The fitting is done with a function borrowed from the Julia language's source (the github link can be found in helper_functions.h:27) and relies heavily on the Eigen library (main.cpp:86-89).
 
-With the polynomial at hand, we calculate the expected position of the car by evaluating the polynomial at the current position of the car (x = 0 since we shifted the coordinate system). The CTE is the difference between the current y position (0 again) and the calculated one (main.cpp:99).
+With the polynomial at hand, we calculate the expected position of the car by evaluating the polynomial at the current position of the car (x = 0 since we shifted the coordinate system). The CTE is the difference between the current y position (0 again) and the calculated one (main.cpp:93-95).
 
-Similarly, we calculate the tangent of the curve, which is greatly simplified by the fact that x = 0 in car coordinates for the current position. With this value, we can get the error in the heading by subtracting the current heading (0 once more) and the calculated one (main.cpp:103-108).
+Similarly, we calculate the tangent of the curve, which is greatly simplified by the fact that x = 0 in car coordinates for the current position. With this value, we can get the error in the heading by subtracting the current heading (0 once more) and the calculated one (main.cpp:99-104).
 
 #### MPC and dealing with latency
 
 Our MPC is called once per telemetry event to solve the actuator controls for the current state and desired trajectory curve.
 
-The controller is comprised of two parts, the first sets the constraint values on the variables passed to the optimizer. This is done in the main body of the Solve method of the MPC class (MPC.cpp:205-256). To feed into the solver, vectors are created to hold the necessary information. It is important to notice how the value of the first (of N, the number of timesteps to predict) variable entries and (upper and low-bound) constraints are set to the current state. This will set the stage for the solver's solution.
+The controller is comprised of two parts, the first sets the constraint values on the variables passed to the optimizer. This is done in the main body of the Solve method of the MPC class (MPC.cpp:180-226). To feed into the solver, vectors are created to hold the necessary information. It is important to notice how the value of the first (of N, the number of timesteps to predict) upper and lower-bound constraints are set to the current state. This will set the stage for the solver's solution.
 
-The second part is in the form of a function representation to optimize (FG_eval @ MPC.cpp:46). This class fills a vector of the cost constraints, both general (stored in index zero) and for the variables.
+The second part is in the form of a function representation to optimize (FG_eval @ MPC.cpp:29). This class fills a vector of the cost constraints, both general (stored in index zero) and for the variables.
 
-The general cost is a compilation of all the factors that we should take into account as objectives (low CTE and EPSI, close to a reference speed, don't accelerate, break or swerve too hard). Each of these terms has an importance assigned to it. In this project, the importance factor of each parameter, is loaded from a text file when the solver is instantiated (MPC.cpp:52-66).
+The general cost is a compilation of all the factors that we should take into account as objectives (low CTE and EPSI, close to a reference speed, don't accelerate, break or swerve too hard). Each of these terms has an importance assigned to it. In this project, the importance factor of each parameter, is loaded from a text file when the solver is instantiated (MPC.cpp:60-91).
 
-The cost of the variables is derived from the model's equations: the predicted state at some step x+1 must be equal to the previous step x plus the model's estimation (MPC.cpp:164-169) so the latter is subtracted from the former to get the cost of the current estimation.
+The cost of the variables is derived from the model's equations: the predicted state at some step x+1 must be equal to the previous step x plus the model's estimation (MPC.cpp:135-140) so the latter is subtracted from the former to get the cost of the current estimation.
 
 Once the actuation values are optimized (to minimize the cost) a structure (MPC.h:12-17) is used to handle the return values for acceleration and steering as well as the projected trajectory. This makes it easy to use the values once the solver returns.
 
@@ -94,9 +94,9 @@ Now, it is common for there to be a delay between the calculation of an actuatio
 
 The project requires that the car at least handles 100ms latency, however, as explained before my environment was split between two computers (one running the code and one running the simulator). This led me to self-impose a 150ms latency to account for communication delays.
 
-The way that latency is handled in the code is by passing an updated state to the MPC solver (main.cpp:113-117). This way we are attempting to calculate the actuators and trajectory for our projection of where the car will be instead of the current position of the car.
+The way that latency is handled in the code is by passing an updated state to the MPC solver (main.cpp:108-113). This way we are attempting to calculate the actuators and trajectory for our projection of where the car will be instead of the current position of the car.
 
-To do this, one important consideration is that the delta and acceleration variables have to be approximated from the values returned by the telemetry. In our case, we have the steering and acceleration actuator values (which go from -1 to 1). To go from steering value to delta, we multiply it times the maximum angle allowed (25Â°). To go from acceleration value to acceleration we multiply it times 2.5, an approximation of the maximum acceleration (the car in the simulator goes from 0 to 40 mph in 4 seconds).
+To do this, one important consideration is that the delta and acceleration variables have to be approximated from the values returned by the telemetry. In our case, we have the steering and acceleration actuator values (which go from -1 to 1). To go from steering value to delta, we multiply it times the maximum angle allowed (25°). To go from acceleration value to acceleration we multiply it times 10, an approximation of the maximum acceleration (the car in the simulator goes from 0 to 40 mph in 4 seconds).
 
 #### Driving around the track
 
